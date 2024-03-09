@@ -1,3 +1,4 @@
+import bcrypt
 from flask import Flask, jsonify, request
 from database import db
 from models.user import User 
@@ -11,12 +12,12 @@ login_manager = LoginManager()
 db.init_app(app)
 login_manager.init_app(app)
 
-
 login_manager.login_view = 'login'
 
 @login_manager.user_loader
 def load_user(user_id):
     return User.query.get(user_id)
+
 
 @app.route('/login', methods=['POST'])
 def login():
@@ -27,18 +28,20 @@ def login():
     if username and password:
         user = User.query.filter_by(username=username).first() 
 
-        if user and user.password == password:
+        if user and bcrypt.checkpw(str.encode(password) , str.encode(user.password)):    
             login_user(user)    
             print(current_user.is_authenticated)  # Corrigido para imprimir a autenticação do usuário
             return jsonify({ "message": "Autenticacao realizada com sucesso"})
 
     return jsonify({ "message": "Credenciais invalidas"}), 400
 
+
 @app.route('/logout', methods=['GET'])
 @login_required
 def logout():
     logout_user()
     return jsonify({"message": "Logout realizado com sucesso!"})
+
 
 @app.route('/user', methods=['POST'])
 def  created_user():
@@ -47,12 +50,14 @@ def  created_user():
     password = data.get("password")
 
     if username and password:
-        user = User (username=username, password=password)
+        hashed_password = bcrypt.hashpw(str.encode(password), bcrypt.gensalt())
+        user = User (username=username, password=hashed_password, role='user')
         db.session.add(user)
         db.session.commit()
         return jsonify({"message": "Usuario cadastrado com sucesso!"})
 
     return jsonify({"message": "Dados invalidos"}), 401
+
 
 @app.route('/user/<int:id_user>', methods=['GET'])
 @login_required
@@ -71,6 +76,8 @@ def update_user(id_user):
     data = request.json
     user = User.query.get(id_user)
  
+    if id_user != current_user.id and current_user.role == "user":
+     return jsonify({"message": "Operacao nao permitida"}), 403
 
     if user and data.get("password"):      
         user.password = data.get("password")
@@ -85,6 +92,9 @@ def update_user(id_user):
 def delete_user(id_user):
     user = User.query.get(id_user)
 
+    if current_user.role != 'admin':
+        return jsonify({"message": "Operacao nao permitida"}), 403
+
     if id_user != current_user.id:
         return jsonify({"message": "Delecao nao permitida!"}), 403
  
@@ -95,11 +105,6 @@ def delete_user(id_user):
     
     return jsonify({"message": "Usuario nao encontrado"}), 400
     
-   
-
-@app.route("/hello-world", methods=["GET"])  # Corrigido o nome da rota
-def hello_world():
-    return "Hello World"
 
 if __name__ == '__main__':
     app.run(debug=True)
